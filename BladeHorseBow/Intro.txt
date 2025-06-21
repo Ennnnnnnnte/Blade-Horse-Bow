@@ -1,0 +1,34 @@
+Erstelle ein rundenbasiertes Strategiespiel in C#, das auf einem 9x9 Spielfeld gespielt wird.
+Das Setting ist mittelalterlich. Es gibt zwei Spieler (oder Spieler vs. KI).
+Jeder Spieler kann drei verschiedene Einheitentypen einsetzen:
+Schwertkämpfer (Nahkämpfer)
+• Bewegung: 1 Feld pro Zug
+• Angriff: Nur angrenzende Felder
+• Stärke: Stark gegen Reiter
+• Schwäche: Schwach gegen Bogenschützen
+• Spezialfähigkeit: Schild hoch → 1 Runde lang erhaltener Schaden halbiert
+Bogenschütze (Fernkämpfer)
+• Bewegung: 1 Feld pro Zug
+• Angriff: Reichweite 2-3 Felder (kann angrenzende Felder nicht angreifen)
+• Stärke: Stark gegen Schwertkämpfer
+• Schwäche: Schwach gegen Reiter
+• Spezialfähigkeit: Durchschuss → Einmalig zwei Gegner in einer Linie treffen
+Reiter (schnelle Einheit)
+• Bewegung: 2 Felder pro Zug
+• Angriff: Nahkampf (1 Feld Abstand)
+• Stärke: Stark gegen Bogenschützen
+• Schwäche: Schwach gegen Schwertkämpfer
+• Spezialfähigkeit: Sturmangriff → Einmalig mehrere Felder in gerader Linie bewegen und am Ende angreifen
+Spielregeln:
+• Spieler ziehen abwechselnd.
+• Eine Einheit kann sich pro Zug entweder bewegen oder angreifen.
+• Bewegungen und Angriffe sind nur orthogonal (keine Diagonalbewegung).
+• Das Ziel des Spiels ist es, alle gegnerischen Einheiten zu besiegen.
+Bitte generiere:
+• Eine objektorientierte Klassenstruktur in C# (Spiel, Spieler, Einheit, Spielfeld, Schwertkämpfer, Bogenschütze, Reiter, etc.).
+• Eine einfache Konsolen-basierte Steuerung (Bewegen, Angreifen, Einheit auswählen).
+• Eine Methode zur Darstellung des Spielfelds in der Konsole.
+• Eine rudimentäre Runden-Logik.
+• Beispielhafte Startaufstellung der Einheiten.
+• Berücksichtige Schere-Stein-Papier-Beziehungen bei Schadensberechnung.
+• Implementiere die Spezialfähigkeiten.
