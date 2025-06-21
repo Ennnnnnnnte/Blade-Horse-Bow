@@ -1,7 +1,7 @@
 from .board import Board
 from .player import Player
 from .units import Swordsman, Archer, Rider
-from .animations import AnimationManager, MeleeAttackAnimation, ArrowAnimation, HitAnimation
+from .animations import AnimationManager, MeleeAttackAnimation, ArrowAnimation, HitAnimation, ArrowStormAnimation
 
 class Game:
     def __init__(self):
@@ -9,6 +9,9 @@ class Game:
         self.players = [Player(1, "Player 1"), Player(2, "Player 2")]
         self.current_turn = 0
         self.animation_manager = AnimationManager()
+        self.pending_special_effects = []  # Spezialfähigkeiten, die in der nächsten Runde ausgeführt werden
+        self.arrow_storm_effects = []  # Pfeilregen-Effekte, die nach dem Gegnerzug ausgeführt werden
+        self.arrow_storm_animation = None  # Referenz auf die Pfeilregen-Animation
         self._setup_units()
 
     def _setup_units(self):
@@ -66,7 +69,7 @@ class Game:
         elif action == "attack":
             self._handle_attack(unit)
         elif action == "special":
-            unit.use_special_ability() # Placeholder
+            self._handle_special(unit)
         else:
             print("Invalid action.")
             self._handle_turn(player) # simple retry
@@ -120,6 +123,123 @@ class Game:
         except (ValueError, IndexError):
             print("Invalid input for coordinates.")
 
+    def _handle_special(self, unit):
+        print("Enter target coordinates (x,y):")
+        try:
+            x_str, y_str = self._get_player_input("Coordinates: ").split(',')
+            target_x, target_y = int(x_str), int(y_str)
+            result, message = self.attempt_special_ability(unit, target_x, target_y)
+            if not result:
+                print(message)
+        except (ValueError, IndexError):
+            print("Invalid input for coordinates.")
+
+    def attempt_special_ability(self, unit, target_x, target_y):
+        """
+        Versucht eine Spezialfähigkeit zu verwenden.
+        Gibt (True, Nachricht) bei Erfolg und (False, Nachricht) bei Misserfolg zurück.
+        """
+        if unit.special_ability_used:
+            return False, "Spezialfähigkeit bereits verbraucht."
+            
+        if isinstance(unit, Swordsman):
+            # Schild hoch - sofort aktiv
+            success = unit.use_special_ability()
+            if success:
+                return True, "Schild hoch aktiviert! Schaden wird für den nächsten Angriff halbiert."
+            return False, "Spezialfähigkeit fehlgeschlagen."
+            
+        elif isinstance(unit, Archer):
+            # Pfeilregen - wird nach dem Gegnerzug ausgeführt
+            success = unit.use_special_ability(target_x, target_y, self.board)
+            if success:
+                # Animation für Pfeilregen-Bereich
+                self.arrow_storm_animation = ArrowStormAnimation((target_x, target_y))
+                self.animation_manager.add_animation(self.arrow_storm_animation)
+                self.arrow_storm_effects.append(('arrow_storm', unit))
+                return True, f"Pfeilregen vorbereitet auf ({target_x}, {target_y})!"
+            return False, "Pfeilregen fehlgeschlagen."
+            
+        elif isinstance(unit, Rider):
+            # Sturmangriff - wird sofort ausgeführt
+            success = unit.use_special_ability(target_x, target_y, self.board)
+            if success:
+                # Führe Sturmangriff aus (ohne Angriffs-Animation)
+                charge_success = unit.execute_charge(self.board)
+                if charge_success:
+                    return True, "Sturmangriff erfolgreich ausgeführt!"
+                else:
+                    return False, "Sturmangriff fehlgeschlagen."
+            return False, "Sturmangriff fehlgeschlagen."
+            
+        return False, "Unbekannte Spezialfähigkeit."
+
+    def execute_pending_special_effects(self):
+        """Führt alle ausstehenden Spezialfähigkeiten aus"""
+        effects_to_execute = self.pending_special_effects.copy()
+        self.pending_special_effects.clear()
+        
+        for effect_type, unit in effects_to_execute:
+            if effect_type == 'arrow_storm':
+                # Beende die Pfeilregen-Animation
+                if self.arrow_storm_animation:
+                    self.arrow_storm_animation.finish()
+                    self.arrow_storm_animation = None
+                
+                targets_hit = unit.execute_arrow_storm(self.board)
+                
+                # Animationen für getroffene Ziele
+                for x, y, target_unit, damage in targets_hit:
+                    self.animation_manager.add_animation(
+                        HitAnimation((x, y))
+                    )
+                    
+                    # Entferne besiegte Einheiten
+                    if target_unit.health == 0:
+                        target_unit.player.remove_unit(target_unit)
+                        self.board.grid[y][x] = None
+
+    def execute_arrow_storm_effects(self):
+        """Führt alle Pfeilregen-Effekte aus (nach dem Gegnerzug)"""
+        effects_to_execute = self.arrow_storm_effects.copy()
+        self.arrow_storm_effects.clear()
+        
+        for effect_type, unit in effects_to_execute:
+            if effect_type == 'arrow_storm':
+                targets_hit = unit.execute_arrow_storm(self.board)
+                
+                # Animationen für getroffene Ziele
+                for x, y, target_unit, damage in targets_hit:
+                    self.animation_manager.add_animation(
+                        HitAnimation((x, y))
+                    )
+                    
+                    # Entferne besiegte Einheiten
+                    if target_unit.health == 0:
+                        target_unit.player.remove_unit(target_unit)
+                        self.board.grid[y][x] = None
+        
+        # Beende die Pfeilregen-Animation nach der Ausführung aller Effekte
+        if self.arrow_storm_animation:
+            self.arrow_storm_animation.finish()
+            self.arrow_storm_animation = None
+
+    def end_turn(self):
+        """Beendet den aktuellen Zug und führt Rundenende-Effekte aus"""
+        # Beende Effekte für alle Einheiten des aktuellen Spielers
+        current_player = self.players[self.current_turn]
+        for unit in current_player.units:
+            if hasattr(unit, 'end_turn'):
+                unit.end_turn()
+        
+        # Wechsle zum nächsten Spieler
+        self.switch_turn()
+        
+        # Führe ausstehende Spezialfähigkeiten aus (nach dem Zugwechsel)
+        self.execute_pending_special_effects()
+        
+        # Führe Pfeilregen-Effekte aus (nach dem Gegnerzug)
+        self.execute_arrow_storm_effects()
 
     def _check_game_over(self):
         return not self.players[0].units or not self.players[1].units

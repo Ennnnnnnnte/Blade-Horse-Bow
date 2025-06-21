@@ -147,6 +147,40 @@ class HitAnimation(Animation):
         rect = pygame.Rect(x, y, square_size, square_size)
         pygame.draw.rect(screen, color, rect)
 
+class ArrowStormAnimation(Animation):
+    def __init__(self, target_pos, color=(255, 0, 0)):
+        super().__init__(duration=float('inf'))  # Unendliche Dauer
+        self.target_pos = target_pos
+        self.color = color
+        
+    def draw(self, screen, square_size):
+        if self.finished:
+            return
+            
+        # 3x3 Bereich um das Ziel markieren (dauerhaft)
+        target_x, target_y = self.target_pos
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                x = target_x + dx
+                y = target_y + dy
+                
+                # Prüfe Grenzen
+                if 0 <= x < 9 and 0 <= y < 9:  # 9x9 Spielfeld
+                    rect = pygame.Rect(x * square_size, y * square_size, square_size, square_size)
+                    
+                    # Semi-transparente rote Markierung
+                    overlay = pygame.Surface((square_size, square_size))
+                    overlay.set_alpha(128)
+                    overlay.fill(self.color)
+                    screen.blit(overlay, rect.topleft)
+                    
+                    # Rahmen
+                    pygame.draw.rect(screen, self.color, rect, 2)
+                    
+    def finish(self):
+        """Beendet die Animation manuell"""
+        self.finished = True
+
 class AnimationManager:
     def __init__(self):
         self.animations = []

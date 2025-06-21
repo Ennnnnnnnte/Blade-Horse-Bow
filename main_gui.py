@@ -95,6 +95,7 @@ def main():
     unit_images = None
     selected_pos = None
     game_over = False
+    special_mode = False  # Spezialfähigkeiten-Modus
 
     running = True
     while running:
@@ -122,12 +123,14 @@ def main():
                 game_state = GameState.PLAYING
                 selected_pos = None
                 game_over = False
+                special_mode = False
             elif action == 'multiplayer':
                 game = Game()
                 unit_images = load_unit_images()
                 game_state = GameState.PLAYING
                 selected_pos = None
                 game_over = False
+                special_mode = False
             elif action == 'quit':
                 running = False
                 
@@ -140,9 +143,10 @@ def main():
                         
                         # Prüfe UI-Clicks
                         ui_action = game_ui.handle_click(mouse_pos)
-                        if ui_action == "attack" and selected_pos:
-                            # Angriffsmodus aktivieren
-                            pass  # TODO: Implementiere Angriffsmodus
+                        if ui_action == "attack" and selected_pos and not special_mode:
+                            special_mode = False  # Normale Angriffsmodus
+                        elif ui_action == "special" and selected_pos and not special_mode:
+                            special_mode = True  # Spezialfähigkeiten-Modus
                         
                         # Prüfe Spielfeld-Clicks (nur wenn Maus über dem Brett ist)
                         if mouse_pos[1] < BOARD_HEIGHT:
@@ -154,31 +158,45 @@ def main():
                                 
                                 if not selected_unit:
                                     selected_pos = None
+                                    special_mode = False
                                     continue
 
                                 target_unit = game.board.get_unit_at(clicked_x, clicked_y)
                                 
-                                if target_unit and target_unit.player != current_player: # Angriff
-                                    success, message = game.attempt_attack(selected_unit, clicked_x, clicked_y)
+                                if special_mode:
+                                    # Spezialfähigkeiten-Modus
+                                    success, message = game.attempt_special_ability(selected_unit, clicked_x, clicked_y)
                                     print(message)
                                     if success:
-                                        game.switch_turn()
+                                        game.end_turn()  # Beende Zug nach Spezialfähigkeit
                                     selected_pos = None
-                                elif not target_unit: # Bewegung
-                                    success, message = game.attempt_move(selected_unit, clicked_x, clicked_y)
-                                    print(message)
-                                    if success:
-                                        game.switch_turn()
-                                    selected_pos = None
-                                elif target_unit and target_unit.player == current_player: # Andere eigene Einheit ausgewählt
-                                    selected_pos = (clicked_x, clicked_y)
-                                else: # Klick auf dieselbe Einheit
-                                    selected_pos = None
+                                    special_mode = False
+                                else:
+                                    # Normaler Modus
+                                    if target_unit and target_unit.player != current_player: # Angriff
+                                        success, message = game.attempt_attack(selected_unit, clicked_x, clicked_y)
+                                        print(message)
+                                        if success:
+                                            game.end_turn()
+                                        selected_pos = None
+                                    elif not target_unit: # Bewegung
+                                        success, message = game.attempt_move(selected_unit, clicked_x, clicked_y)
+                                        print(message)
+                                        if success:
+                                            game.end_turn()
+                                        selected_pos = None
+                                    elif target_unit and target_unit.player == current_player: # Andere eigene Einheit ausgewählt
+                                        selected_pos = (clicked_x, clicked_y)
+                                        special_mode = False
+                                    else: # Klick auf dieselbe Einheit
+                                        selected_pos = None
+                                        special_mode = False
                             else:
                                 # Einheit auswählen
                                 unit_to_select = game.board.get_unit_at(clicked_x, clicked_y)
                                 if unit_to_select and unit_to_select.player == current_player:
                                     selected_pos = (clicked_x, clicked_y)
+                                    special_mode = False
 
             # Rendering
             if game:
@@ -196,9 +214,17 @@ def main():
                     selected_unit = game.board.get_unit_at(selected_pos[0], selected_pos[1])
                 game_ui.draw(screen, selected_unit, game)
                 
-                # Schadensvorhersage
-                mouse_pos = pygame.mouse.get_pos()
-                game_ui.draw_damage_prediction(screen, mouse_pos, selected_unit, game)
+                # Schadensvorhersage (nur im normalen Modus)
+                if not special_mode:
+                    mouse_pos = pygame.mouse.get_pos()
+                    game_ui.draw_damage_prediction(screen, mouse_pos, selected_unit, game)
+                
+                # Spezialfähigkeiten-Modus Anzeige
+                if special_mode and selected_unit:
+                    font = pygame.font.Font(None, 24)
+                    special_text = f"Spezialfähigkeit: {selected_unit.__class__.__name__}"
+                    text_surface = font.render(special_text, True, (255, 255, 0))
+                    screen.blit(text_surface, (20, WINDOW_HEIGHT - 30))
 
                 # Spielende prüfen
                 if not game_over and game._check_game_over():
@@ -225,6 +251,7 @@ def main():
                 unit_images = load_unit_images()
                 selected_pos = None
                 game_over = False
+                special_mode = False
                 game_state = GameState.PLAYING
             elif action == 'main_menu':
                 game_state = GameState.MAIN_MENU
