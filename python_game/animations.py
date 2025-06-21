@@ -16,6 +16,41 @@ class Animation:
             return 1.0
         return elapsed / self.duration
 
+class MovementAnimation(Animation):
+    def __init__(self, start_pos, end_pos, unit, duration=0.8):
+        super().__init__(duration)
+        self.start_pos = start_pos
+        self.end_pos = end_pos
+        self.unit = unit
+        self.current_pos = start_pos
+        
+    def draw(self, screen, square_size):
+        if self.finished:
+            return
+            
+        progress = self.update()
+        
+        # Interpoliere zwischen Start- und Endposition
+        start_x = self.start_pos[0] * square_size + square_size // 2
+        start_y = self.start_pos[1] * square_size + square_size // 2
+        end_x = self.end_pos[0] * square_size + square_size // 2
+        end_y = self.end_pos[1] * square_size + square_size // 2
+        
+        current_x = start_x + (end_x - start_x) * progress
+        current_y = start_y + (end_y - start_y) * progress
+        
+        # Zeichne die Einheit an der aktuellen Position
+        unit_rect = pygame.Rect(current_x - square_size // 2, current_y - square_size // 2, square_size, square_size)
+        
+        # Farbe basierend auf Spieler
+        if self.unit.player.id == 1:
+            color = (0, 150, 255)  # Blau für Spieler 1
+        else:
+            color = (255, 50, 50)  # Rot für Spieler 2
+            
+        pygame.draw.rect(screen, color, unit_rect.inflate(-8, -8))
+        pygame.draw.rect(screen, (255, 255, 255), unit_rect.inflate(-8, -8), 2)
+
 class MeleeAttackAnimation(Animation):
     def __init__(self, start_pos, target_pos, color=(255, 255, 0)):
         super().__init__(duration=0.4)
@@ -180,6 +215,32 @@ class ArrowStormAnimation(Animation):
     def finish(self):
         """Beendet die Animation manuell"""
         self.finished = True
+
+class ShieldAnimation(Animation):
+    def __init__(self, unit_pos, duration=float('inf')):
+        super().__init__(duration)
+        self.unit_pos = unit_pos
+        self.color = (0, 255, 0)  # Grün
+        
+    def draw(self, screen, square_size):
+        if self.finished:
+            return
+            
+        # Zeichne einen grünen Ring um die Einheit
+        x, y = self.unit_pos
+        center_x = x * square_size + square_size // 2
+        center_y = y * square_size + square_size // 2
+        radius = square_size // 2 + 5
+        
+        # Äußerer Ring
+        pygame.draw.circle(screen, self.color, (center_x, center_y), radius, 3)
+        
+        # Innerer Ring für besseren Effekt
+        pygame.draw.circle(screen, self.color, (center_x, center_y), radius - 3, 1)
+        
+    def update(self):
+        """Überschreibe update, damit die Animation nicht automatisch endet"""
+        return 0.0
 
 class AnimationManager:
     def __init__(self):

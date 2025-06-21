@@ -60,17 +60,18 @@ class Swordsman(Unit):
         return UnitType.SWORDSMAN
 
     def __init__(self, player):
-        super().__init__(player, health=100, attack_power=30, movement_speed=1)
+        super().__init__(player, health=100, attack_power=30, movement_speed=2)  # 2 Felder Bewegung
         self.shield_active = False
         self.shield_used = False
 
     def attack(self, target_unit, board):
         if self.position is None or target_unit.position is None:
             return False
-        # Attack range is 1
+        # Attack range is 2 (Lanze)
         dist_x = abs(self.position[0] - target_unit.position[0])
         dist_y = abs(self.position[1] - target_unit.position[1])
-        if (dist_x + dist_y) == 1:
+        distance = max(dist_x, dist_y)  # Diagonale Distanz
+        if distance <= 2:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
             target_unit.take_damage(damage)
@@ -109,18 +110,18 @@ class Archer(Unit):
         return UnitType.ARCHER
 
     def __init__(self, player):
-        super().__init__(player, health=80, attack_power=25, movement_speed=1)
+        super().__init__(player, health=80, attack_power=25, movement_speed=1)  # 1 Feld Bewegung
         self.arrow_storm_target = None
         self.arrow_storm_damage = 20  # Reduzierter Schaden für AOE
 
     def attack(self, target_unit, board):
         if self.position is None or target_unit.position is None:
             return False
-        # Attack range 2-3
+        # Attack range 6 (Bogen)
         dist_x = abs(self.position[0] - target_unit.position[0])
         dist_y = abs(self.position[1] - target_unit.position[1])
-        distance = dist_x + dist_y
-        if 2 <= distance <= 3:
+        distance = max(dist_x, dist_y)  # Diagonale Distanz
+        if distance <= 6:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
             target_unit.take_damage(damage)
@@ -176,7 +177,7 @@ class Rider(Unit):
         return UnitType.RIDER
 
     def __init__(self, player):
-        super().__init__(player, health=120, attack_power=35, movement_speed=2)
+        super().__init__(player, health=120, attack_power=35, movement_speed=4)  # 4 Felder Bewegung
         self.charge_target = None
         self.charge_path = []
         self.charge_damage = 50  # Erhöhter Schaden für Sturmangriff
@@ -184,10 +185,11 @@ class Rider(Unit):
     def attack(self, target_unit, board):
         if self.position is None or target_unit.position is None:
             return False
-        # Melee attack
+        # Attack range 1 (Radius)
         dist_x = abs(self.position[0] - target_unit.position[0])
         dist_y = abs(self.position[1] - target_unit.position[1])
-        if (dist_x + dist_y) == 1:
+        distance = max(dist_x, dist_y)  # Diagonale Distanz
+        if distance <= 1:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
             target_unit.take_damage(damage)
@@ -197,91 +199,71 @@ class Rider(Unit):
         return False
 
     def use_special_ability(self, target_x, target_y, board):
-        # Charge: move multiple fields and attack
+        # Charge: move unlimited distance and attack
         if not self.special_ability_used:
-            if self.position is None:
-                return False
-                
-            # Berechne Pfad zum Ziel
-            path = self._calculate_charge_path(target_x, target_y, board)
-            if path:
+            if 0 <= target_x < board.size and 0 <= target_y < board.size:
                 self.charge_target = (target_x, target_y)
-                self.charge_path = path
+                self.charge_path = self._calculate_charge_path(target_x, target_y, board)
                 self.special_ability_used = True
-                print(f"Rider used Charge towards ({target_x}, {target_y})!")
+                print(f"Rider used Charge on ({target_x}, {target_y})!")
                 return True
             else:
-                print("Charge target is not reachable!")
+                print("Charge target is outside the board!")
                 return False
         return False
         
     def _calculate_charge_path(self, target_x, target_y, board):
-        """Berechnet den Pfad für den Sturmangriff"""
+        """Berechnet den Weg für den Sturmangriff (unbegrenzte Distanz)"""
         if self.position is None:
             return []
             
         start_x, start_y = self.position
+        path = []
+        
+        # Einfache Linie zum Ziel (kann durch Einheiten gehen)
         dx = target_x - start_x
         dy = target_y - start_y
         
-        # Nur orthogonale Bewegung
-        if dx != 0 and dy != 0:
-            return []  # Keine diagonalen Sturmangriffe
+        # Normalisiere die Richtung
+        if dx != 0:
+            dx = dx // abs(dx)
+        if dy != 0:
+            dy = dy // abs(dy)
             
-        # Maximale Reichweite für Sturmangriff
-        max_charge_distance = 4
-        
-        if abs(dx) > max_charge_distance or abs(dy) > max_charge_distance:
-            return []  # Zu weit
-            
-        path = []
         current_x, current_y = start_x, start_y
         
-        # Bewege sich Schritt für Schritt zum Ziel
         while current_x != target_x or current_y != target_y:
-            if current_x < target_x:
-                current_x += 1
-            elif current_x > target_x:
-                current_x -= 1
-            elif current_y < target_y:
-                current_y += 1
-            elif current_y > target_y:
-                current_y -= 1
-                
-            # Prüfe, ob das Feld frei ist
-            if board.get_unit_at(current_x, current_y) is not None:
-                return []  # Pfad blockiert
-                
+            if current_x != target_x:
+                current_x += dx
+            if current_y != target_y:
+                current_y += dy
             path.append((current_x, current_y))
             
         return path
         
     def execute_charge(self, board):
         """Führt den Sturmangriff aus"""
-        if not self.charge_path or not self.charge_target:
+        if not self.charge_target or not self.charge_path:
             return False
             
-        # Bewege zur letzten Position im Pfad
-        final_x, final_y = self.charge_path[-1]
-        if board.move_unit(self, final_x, final_y):
+        target_x, target_y = self.charge_target
+        target_unit = board.get_unit_at(target_x, target_y)
+        
+        # Bewege zur Zielposition (immer möglich bei Sturmangriff)
+        if self.charge_path:
+            final_x, final_y = self.charge_path[-1]
+            board.move_unit(self, final_x, final_y)
             print(f"Rider charged to ({final_x}, {final_y})!")
-            
-            # Angriff am Ziel
-            target_x, target_y = self.charge_target
-            target_unit = board.get_unit_at(target_x, target_y)
-            
-            if target_unit and target_unit.player != self.player:
-                # Erhöhter Schaden für Sturmangriff
-                damage_modifier = self.get_damage_modifier(target_unit)
-                damage = int(self.charge_damage * damage_modifier)
-                target_unit.take_damage(damage)
-                print(f"Charge attack hit {target_unit.__class__.__name__} for {damage} damage!")
-                
-                # Entferne besiegte Einheit
-                if target_unit.health == 0:
-                    target_unit.player.remove_unit(target_unit)
-                    board.grid[target_y][target_x] = None
-                    
+        
+        # Führe Angriff aus, falls eine gegnerische Einheit am Ziel ist
+        if target_unit and target_unit.player != self.player:
+            damage_modifier = self.get_damage_modifier(target_unit)
+            damage = int(self.charge_damage * damage_modifier)
+            target_unit.take_damage(damage)
+            print(f"Charge hit {target_unit.__class__.__name__} for {damage} damage!")
+        else:
+            print("Charge completed - no enemy at target position.")
+        
         self.charge_target = None
         self.charge_path = []
         return True

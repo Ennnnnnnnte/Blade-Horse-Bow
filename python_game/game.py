@@ -1,7 +1,7 @@
 from .board import Board
 from .player import Player
 from .units import Swordsman, Archer, Rider
-from .animations import AnimationManager, MeleeAttackAnimation, ArrowAnimation, HitAnimation, ArrowStormAnimation
+from .animations import AnimationManager, MeleeAttackAnimation, ArrowAnimation, HitAnimation, ArrowStormAnimation, MovementAnimation
 
 class Game:
     def __init__(self):
@@ -11,7 +11,10 @@ class Game:
         self.animation_manager = AnimationManager()
         self.pending_special_effects = []  # Spezialfähigkeiten, die in der nächsten Runde ausgeführt werden
         self.arrow_storm_effects = []  # Pfeilregen-Effekte, die nach dem Gegnerzug ausgeführt werden
-        self.arrow_storm_animation = None  # Referenz auf die Pfeilregen-Animation
+        self.delayed_arrow_storm_effects = []  # Pfeilregen-Effekte, die erst nach dem kompletten Gegnerzug ausgeführt werden
+        self.arrow_storm_animations = []  # Liste aller aktiven Pfeilregen-Animationen
+        self.turn_switch_count = 0  # Zähler für Zugwechsel
+        self.last_arrow_storm_player = None  # Spieler, der den Pfeilregen vorbereitet hat
         self._setup_units()
 
     def _setup_units(self):
@@ -150,13 +153,17 @@ class Game:
             return False, "Spezialfähigkeit fehlgeschlagen."
             
         elif isinstance(unit, Archer):
-            # Pfeilregen - wird nach dem Gegnerzug ausgeführt
+            # Pfeilregen - wird nach dem kompletten Gegnerzug ausgeführt
             success = unit.use_special_ability(target_x, target_y, self.board)
             if success:
+                print(f"DEBUG: Pfeilregen vorbereitet auf ({target_x}, {target_y}) von Spieler {unit.player.id}")
                 # Animation für Pfeilregen-Bereich
-                self.arrow_storm_animation = ArrowStormAnimation((target_x, target_y))
-                self.animation_manager.add_animation(self.arrow_storm_animation)
-                self.arrow_storm_effects.append(('arrow_storm', unit))
+                arrow_storm_anim = ArrowStormAnimation((target_x, target_y))
+                self.animation_manager.add_animation(arrow_storm_anim)
+                self.arrow_storm_animations.append(arrow_storm_anim)
+                self.delayed_arrow_storm_effects.append(('arrow_storm', unit, arrow_storm_anim))
+                self.last_arrow_storm_player = unit.player.id
+                print(f"DEBUG: Verzögerte Pfeilregen-Effekte in Queue: {len(self.delayed_arrow_storm_effects)}")
                 return True, f"Pfeilregen vorbereitet auf ({target_x}, {target_y})!"
             return False, "Pfeilregen fehlgeschlagen."
             
@@ -164,68 +171,73 @@ class Game:
             # Sturmangriff - wird sofort ausgeführt
             success = unit.use_special_ability(target_x, target_y, self.board)
             if success:
-                # Führe Sturmangriff aus (ohne Angriffs-Animation)
+                # Führe Sturmangriff aus
                 charge_success = unit.execute_charge(self.board)
                 if charge_success:
                     return True, "Sturmangriff erfolgreich ausgeführt!"
                 else:
-                    return False, "Sturmangriff fehlgeschlagen."
-            return False, "Sturmangriff fehlgeschlagen."
+                    # Wenn der Sturmangriff fehlschlägt, setze die Fähigkeit zurück
+                    unit.special_ability_used = False
+                    unit.charge_target = None
+                    unit.charge_path = []
+                    return False, "Sturmangriff fehlgeschlagen - Unerwarteter Fehler."
+            return False, "Sturmangriff fehlgeschlagen - Ungültiges Ziel."
             
         return False, "Unbekannte Spezialfähigkeit."
 
-    def execute_pending_special_effects(self):
-        """Führt alle ausstehenden Spezialfähigkeiten aus"""
-        effects_to_execute = self.pending_special_effects.copy()
-        self.pending_special_effects.clear()
+    def execute_delayed_arrow_storm_effects(self):
+        """Führt alle verzögerten Pfeilregen-Effekte aus (nach dem kompletten Gegnerzug)"""
+        if not self.delayed_arrow_storm_effects:
+            return
+            
+        # Führe nur die Effekte aus, die dem aktuellen Spieler gehören
+        current_player_id = self.current_turn + 1
+        effects_to_execute = []
+        remaining_effects = []
         
-        for effect_type, unit in effects_to_execute:
-            if effect_type == 'arrow_storm':
-                # Beende die Pfeilregen-Animation
-                if self.arrow_storm_animation:
-                    self.arrow_storm_animation.finish()
-                    self.arrow_storm_animation = None
-                
-                targets_hit = unit.execute_arrow_storm(self.board)
-                
-                # Animationen für getroffene Ziele
-                for x, y, target_unit, damage in targets_hit:
-                    self.animation_manager.add_animation(
-                        HitAnimation((x, y))
-                    )
+        for effect in self.delayed_arrow_storm_effects:
+            effect_type, unit, animation = effect
+            if effect_type == 'arrow_storm' and unit.player.id == current_player_id:
+                effects_to_execute.append(effect)
+            else:
+                remaining_effects.append(effect)
+        
+        self.delayed_arrow_storm_effects = remaining_effects
+        
+        if effects_to_execute:
+            print(f"DEBUG: Führe {len(effects_to_execute)} verzögerte Pfeilregen-Effekte für Spieler {current_player_id} aus")
+            
+            for effect_type, unit, animation in effects_to_execute:
+                if effect_type == 'arrow_storm':
+                    print(f"DEBUG: Führe verzögerten Pfeilregen für {unit.__class__.__name__} aus")
+                    targets_hit = unit.execute_arrow_storm(self.board)
                     
-                    # Entferne besiegte Einheiten
-                    if target_unit.health == 0:
-                        target_unit.player.remove_unit(target_unit)
-                        self.board.grid[y][x] = None
-
-    def execute_arrow_storm_effects(self):
-        """Führt alle Pfeilregen-Effekte aus (nach dem Gegnerzug)"""
-        effects_to_execute = self.arrow_storm_effects.copy()
-        self.arrow_storm_effects.clear()
-        
-        for effect_type, unit in effects_to_execute:
-            if effect_type == 'arrow_storm':
-                targets_hit = unit.execute_arrow_storm(self.board)
-                
-                # Animationen für getroffene Ziele
-                for x, y, target_unit, damage in targets_hit:
-                    self.animation_manager.add_animation(
-                        HitAnimation((x, y))
-                    )
-                    
-                    # Entferne besiegte Einheiten
-                    if target_unit.health == 0:
-                        target_unit.player.remove_unit(target_unit)
-                        self.board.grid[y][x] = None
-        
-        # Beende die Pfeilregen-Animation nach der Ausführung aller Effekte
-        if self.arrow_storm_animation:
-            self.arrow_storm_animation.finish()
-            self.arrow_storm_animation = None
+                    # Animationen für getroffene Ziele
+                    for x, y, target_unit, damage in targets_hit:
+                        self.animation_manager.add_animation(
+                            HitAnimation((x, y))
+                        )
+                        
+                        # Entferne besiegte Einheiten
+                        if target_unit.health == 0:
+                            target_unit.player.remove_unit(target_unit)
+                            self.board.grid[y][x] = None
+            
+            # Beende die entsprechenden Pfeilregen-Animationen
+            animations_to_finish = [effect[2] for effect in effects_to_execute]
+            print(f"DEBUG: Beende {len(animations_to_finish)} Pfeilregen-Animationen")
+            for anim in animations_to_finish:
+                if anim in self.arrow_storm_animations:
+                    anim.finish()
+                    self.arrow_storm_animations.remove(anim)
+            
+            # Wenn keine Pfeilregen-Animationen mehr übrig sind, setze last_arrow_storm_player zurück
+            if not self.arrow_storm_animations:
+                self.last_arrow_storm_player = None
 
     def end_turn(self):
         """Beendet den aktuellen Zug und führt Rundenende-Effekte aus"""
+        print(f"DEBUG: Ende Zug für Spieler {self.current_turn + 1}")
         # Beende Effekte für alle Einheiten des aktuellen Spielers
         current_player = self.players[self.current_turn]
         for unit in current_player.units:
@@ -234,12 +246,7 @@ class Game:
         
         # Wechsle zum nächsten Spieler
         self.switch_turn()
-        
-        # Führe ausstehende Spezialfähigkeiten aus (nach dem Zugwechsel)
-        self.execute_pending_special_effects()
-        
-        # Führe Pfeilregen-Effekte aus (nach dem Gegnerzug)
-        self.execute_arrow_storm_effects()
+        print(f"DEBUG: Wechsle zu Spieler {self.current_turn + 1}")
 
     def _check_game_over(self):
         return not self.players[0].units or not self.players[1].units
@@ -249,7 +256,17 @@ class Game:
 
     def switch_turn(self):
         """Switches the turn to the next player."""
+        old_turn = self.current_turn
         self.current_turn = (self.current_turn + 1) % 2
+        self.turn_switch_count += 1
+        
+        print(f"DEBUG: Zugwechsel von Spieler {old_turn + 1} zu Spieler {self.current_turn + 1}")
+        print(f"DEBUG: Turn switch count: {self.turn_switch_count}")
+        print(f"DEBUG: Last arrow storm player: {self.last_arrow_storm_player}")
+        
+        # Führe verzögerte Pfeilregen-Effekte aus, wenn der Spieler wechselt
+        # Jeder Pfeilregen wird ausgeführt, wenn der entsprechende Spieler wieder an der Reihe ist
+        self.execute_delayed_arrow_storm_effects()
 
     def attempt_move(self, unit, new_x, new_y):
         """
@@ -259,14 +276,17 @@ class Game:
         if unit.position is None:
             return False, "Einheit hat keine Position."
 
-        dist_x = abs(unit.position[0] - new_x)
-        dist_y = abs(unit.position[1] - new_y)
-        if (dist_x + dist_y) == 0:
-            return False, "Muss zu einem anderen Feld ziehen."
-        if (dist_x + dist_y) > unit.movement_speed:
-            return False, "Kann sich nicht so weit bewegen."
+        # Prüfe, ob das Ziel erreichbar ist (Rautenform)
+        reachable_positions = self.board.get_reachable_positions_rhombus(unit, unit.movement_speed)
+        if (new_x, new_y) not in reachable_positions:
+            return False, "Ziel ist nicht erreichbar."
 
+        old_pos = unit.position
         if self.board.move_unit(unit, new_x, new_y):
+            # Füge Bewegungsanimation hinzu
+            self.animation_manager.add_animation(
+                MovementAnimation(old_pos, (new_x, new_y), unit)
+            )
             return True, f"Einheit nach ({new_x},{new_y}) bewegt."
         else:
             return False, "Ungültiger Zug. Position ist möglicherweise besetzt."

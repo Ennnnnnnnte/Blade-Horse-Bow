@@ -4,6 +4,7 @@ import os
 from python_game.game import Game
 from python_game.menu import Menu, GameState
 from python_game.game_ui import GameUI
+from python_game.units import Swordsman
 
 # --- Konstanten ---
 BOARD_SIZE = 9
@@ -13,10 +14,12 @@ BOARD_HEIGHT = BOARD_SIZE * SQUARE_SIZE
 UI_HEIGHT = 150
 WINDOW_WIDTH = BOARD_WIDTH
 WINDOW_HEIGHT = BOARD_HEIGHT + UI_HEIGHT
-GRID_COLOR = (50, 50, 50)
+GRID_COLOR = (80, 80, 80)  # Dunkleres Grau
 PLAYER1_COLOR = (0, 150, 255)  # Blau
 PLAYER2_COLOR = (255, 50, 50)   # Rot
 HIGHLIGHT_COLOR = (255, 255, 0) # Gelb
+REACHABLE_COLOR = (255, 255, 255)  # Weiß für erreichbare Felder
+ATTACKABLE_COLOR = (255, 0, 0)  # Rot für angreifbare Felder
 
 # Farben für Einheitentypen als Fallback
 UNIT_COLORS = {
@@ -50,7 +53,37 @@ def draw_grid(screen):
     for y in range(0, BOARD_HEIGHT, SQUARE_SIZE):
         pygame.draw.line(screen, GRID_COLOR, (0, y), (BOARD_WIDTH, y))
 
-def draw_units(screen, board, unit_images):
+def draw_highlights(screen, game, selected_pos, attack_mode):
+    """Zeichnet Highlights für erreichbare und angreifbare Felder."""
+    if not selected_pos:
+        return
+        
+    selected_unit = game.board.get_unit_at(selected_pos[0], selected_pos[1])
+    if not selected_unit:
+        return
+        
+    if attack_mode:
+        # Zeige angreifbare Felder in Rot
+        attackable_positions = game.board.get_attackable_positions(selected_unit)
+        for x, y in attackable_positions:
+            rect = pygame.Rect(x * SQUARE_SIZE, y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
+            overlay = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE))
+            overlay.set_alpha(80)  # Niedrigere Alpha für bessere Sichtbarkeit
+            overlay.fill(ATTACKABLE_COLOR)
+            screen.blit(overlay, rect.topleft)
+            pygame.draw.rect(screen, ATTACKABLE_COLOR, rect, 3)  # Dickerer Rahmen
+    else:
+        # Zeige erreichbare Felder in Weiß (Rautenform)
+        reachable_positions = game.board.get_reachable_positions_rhombus(selected_unit, selected_unit.movement_speed)
+        for x, y in reachable_positions:
+            rect = pygame.Rect(x * SQUARE_SIZE, y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
+            overlay = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE))
+            overlay.set_alpha(60)  # Niedrigere Alpha für bessere Sichtbarkeit
+            overlay.fill(REACHABLE_COLOR)
+            screen.blit(overlay, rect.topleft)
+            pygame.draw.rect(screen, REACHABLE_COLOR, rect, 3)  # Dickerer Rahmen
+
+def draw_units(screen, board, unit_images, game):
     """Zeichnet die Einheiten auf dem Brett."""
     for y in range(board.size):
         for x in range(board.size):
@@ -70,6 +103,12 @@ def draw_units(screen, board, unit_images):
                 
                 player_color = PLAYER1_COLOR if unit.player.id == 1 else PLAYER2_COLOR
                 pygame.draw.rect(screen, player_color, rect, 4)
+                
+                # Zeichne Schild-Animation für Lanzenträger
+                if isinstance(unit, Swordsman) and unit.shield_active and not unit.shield_used:
+                    from python_game.animations import ShieldAnimation
+                    shield_anim = ShieldAnimation((x, y))
+                    shield_anim.draw(screen, SQUARE_SIZE)
 
 def draw_selection(screen, selected_pos):
     """Hebt das ausgewählte Feld hervor."""
@@ -96,6 +135,7 @@ def main():
     selected_pos = None
     game_over = False
     special_mode = False  # Spezialfähigkeiten-Modus
+    attack_mode = False  # Angriffsmodus
 
     running = True
     while running:
@@ -124,6 +164,7 @@ def main():
                 selected_pos = None
                 game_over = False
                 special_mode = False
+                attack_mode = False
             elif action == 'multiplayer':
                 game = Game()
                 unit_images = load_unit_images()
@@ -131,12 +172,18 @@ def main():
                 selected_pos = None
                 game_over = False
                 special_mode = False
+                attack_mode = False
             elif action == 'quit':
                 running = False
                 
         elif game_state == GameState.PLAYING:
             # Spiellogik
-            if game and not game_over and not game.animation_manager.is_animating():
+            # Erlaube Mausklicks auch während der Pfeilregen-Animation
+            allow_clicks = (game and not game_over and 
+                          (not game.animation_manager.is_animating() or 
+                           len(game.arrow_storm_animations) > 0))
+            
+            if allow_clicks:
                 for event in events:
                     if event.type == pygame.MOUSEBUTTONDOWN:
                         mouse_pos = pygame.mouse.get_pos()
@@ -144,9 +191,11 @@ def main():
                         # Prüfe UI-Clicks
                         ui_action = game_ui.handle_click(mouse_pos)
                         if ui_action == "attack" and selected_pos and not special_mode:
-                            special_mode = False  # Normale Angriffsmodus
-                        elif ui_action == "special" and selected_pos and not special_mode:
+                            attack_mode = True  # Angriffsmodus
+                            special_mode = False
+                        elif ui_action == "special" and selected_pos and not attack_mode:
                             special_mode = True  # Spezialfähigkeiten-Modus
+                            attack_mode = False
                         
                         # Prüfe Spielfeld-Clicks (nur wenn Maus über dem Brett ist)
                         if mouse_pos[1] < BOARD_HEIGHT:
@@ -159,6 +208,7 @@ def main():
                                 if not selected_unit:
                                     selected_pos = None
                                     special_mode = False
+                                    attack_mode = False
                                     continue
 
                                 target_unit = game.board.get_unit_at(clicked_x, clicked_y)
@@ -171,8 +221,21 @@ def main():
                                         game.end_turn()  # Beende Zug nach Spezialfähigkeit
                                     selected_pos = None
                                     special_mode = False
+                                    attack_mode = False
+                                elif attack_mode:
+                                    # Angriffsmodus
+                                    if target_unit and target_unit.player != current_player:
+                                        success, message = game.attempt_attack(selected_unit, clicked_x, clicked_y)
+                                        print(message)
+                                        if success:
+                                            game.end_turn()
+                                        selected_pos = None
+                                        attack_mode = False
+                                    else:
+                                        # Klick auf leeres Feld oder eigene Einheit - wechsle zu Bewegung
+                                        attack_mode = False
                                 else:
-                                    # Normaler Modus
+                                    # Normaler Modus (Bewegung)
                                     if target_unit and target_unit.player != current_player: # Angriff
                                         success, message = game.attempt_attack(selected_unit, clicked_x, clicked_y)
                                         print(message)
@@ -188,25 +251,31 @@ def main():
                                     elif target_unit and target_unit.player == current_player: # Andere eigene Einheit ausgewählt
                                         selected_pos = (clicked_x, clicked_y)
                                         special_mode = False
+                                        attack_mode = False
                                     else: # Klick auf dieselbe Einheit
                                         selected_pos = None
                                         special_mode = False
+                                        attack_mode = False
                             else:
                                 # Einheit auswählen
                                 unit_to_select = game.board.get_unit_at(clicked_x, clicked_y)
                                 if unit_to_select and unit_to_select.player == current_player:
                                     selected_pos = (clicked_x, clicked_y)
                                     special_mode = False
+                                    attack_mode = False
 
             # Rendering
             if game:
                 screen.fill((0, 0, 0))
                 draw_grid(screen)
-                draw_units(screen, game.board, unit_images)
+                draw_units(screen, game.board, unit_images, game)
                 draw_selection(screen, selected_pos)
                 
                 # Animationen zeichnen
                 game.animation_manager.update_and_draw(screen, SQUARE_SIZE)
+                
+                # Highlights über den Einheiten zeichnen (aber mit niedrigerer Alpha für bessere Sichtbarkeit)
+                draw_highlights(screen, game, selected_pos, attack_mode)
                 
                 # UI zeichnen
                 selected_unit = None
@@ -215,7 +284,7 @@ def main():
                 game_ui.draw(screen, selected_unit, game)
                 
                 # Schadensvorhersage (nur im normalen Modus)
-                if not special_mode:
+                if not special_mode and not attack_mode:
                     mouse_pos = pygame.mouse.get_pos()
                     game_ui.draw_damage_prediction(screen, mouse_pos, selected_unit, game)
                 
@@ -224,6 +293,13 @@ def main():
                     font = pygame.font.Font(None, 24)
                     special_text = f"Spezialfähigkeit: {selected_unit.__class__.__name__}"
                     text_surface = font.render(special_text, True, (255, 255, 0))
+                    screen.blit(text_surface, (20, WINDOW_HEIGHT - 30))
+                
+                # Angriffsmodus Anzeige
+                if attack_mode and selected_unit:
+                    font = pygame.font.Font(None, 24)
+                    attack_text = f"Angriff: {selected_unit.__class__.__name__}"
+                    text_surface = font.render(attack_text, True, (255, 0, 0))
                     screen.blit(text_surface, (20, WINDOW_HEIGHT - 30))
 
                 # Spielende prüfen
@@ -252,6 +328,7 @@ def main():
                 selected_pos = None
                 game_over = False
                 special_mode = False
+                attack_mode = False
                 game_state = GameState.PLAYING
             elif action == 'main_menu':
                 game_state = GameState.MAIN_MENU
