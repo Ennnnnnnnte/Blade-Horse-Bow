@@ -2,9 +2,10 @@ from .board import Board
 from .player import Player
 from .units import Swordsman, Archer, Rider
 from .animations import AnimationManager, MeleeAttackAnimation, ArrowAnimation, HitAnimation, ArrowStormAnimation, MovementAnimation
+from .ai import AI
 
 class Game:
-    def __init__(self):
+    def __init__(self, game_mode="multiplayer", ai_difficulty="medium"):
         self.board = Board()
         self.players = [Player(1, "Player 1"), Player(2, "Player 2")]
         self.current_turn = 0
@@ -15,6 +16,17 @@ class Game:
         self.arrow_storm_animations = []  # Liste aller aktiven Pfeilregen-Animationen
         self.turn_switch_count = 0  # Zähler für Zugwechsel
         self.last_arrow_storm_player = None  # Spieler, der den Pfeilregen vorbereitet hat
+        
+        # KI-Einstellungen
+        self.game_mode = game_mode
+        self.ai_difficulty = ai_difficulty
+        self.ai = None
+        
+        if game_mode == "singleplayer":
+            # KI für Spieler 2 (Computer)
+            self.ai = AI(self.players[1], ai_difficulty)
+            self.ai.set_game(self)
+            
         self._setup_units()
 
     def _setup_units(self):
@@ -304,6 +316,11 @@ class Game:
         if target_unit.player == attacker.player:
             return False, "Kann eigene Einheit nicht angreifen."
         
+        # Prüfe Sichtlinie für Bogenschützen
+        if isinstance(attacker, Archer) and attacker.position is not None:
+            if not self.board._has_line_of_sight(attacker.position[0], attacker.position[1], target_x, target_y):
+                return False, "Sichtlinie blockiert (Berg im Weg)."
+        
         if attacker.attack(target_unit, self.board):
             # Animation basierend auf Einheitentyp hinzufügen
             attacker_pos = attacker.position
@@ -333,3 +350,39 @@ class Game:
             return True, message
         else:
              return False, "Angriff fehlgeschlagen. Ziel möglicherweise außer Reichweite."
+
+    def attack_unit(self, attacking_unit, target_unit):
+        """Führt einen Angriff zwischen zwei Einheiten aus."""
+        current_player = self.players[self.current_turn]
+        if attacking_unit.player != current_player:
+            print("It's not your turn!")
+            return False
+            
+        if attacking_unit.special_ability_used:
+            print("Unit has already used its special ability this turn!")
+            return False
+            
+        # Führe den Angriff aus
+        success = attacking_unit.attack(target_unit, self.board)
+        
+        if success:
+            # Prüfe, ob die Ziel-Einheit besiegt wurde
+            if target_unit.health <= 0:
+                # Entferne die Einheit vom Brett
+                if target_unit.position:
+                    self.board.grid[target_unit.position[1]][target_unit.position[0]] = None
+                    target_unit.position = None
+                    
+                # Entferne die Einheit aus der Spieler-Liste
+                if target_unit in target_unit.player.units:
+                    target_unit.player.units.remove(target_unit)
+                    
+                print(f"{target_unit.__class__.__name__} from Player {target_unit.player.id} has been defeated!")
+                
+                # Prüfe, ob das Spiel vorbei ist
+                if len(target_unit.player.units) == 0:
+                    self.game_over = True
+                    self.winner = current_player
+                    print(f"Player {self.winner.id} wins!")
+        
+        return success

@@ -83,6 +83,34 @@ def draw_highlights(screen, game, selected_pos, attack_mode):
             screen.blit(overlay, rect.topleft)
             pygame.draw.rect(screen, REACHABLE_COLOR, rect, 3)  # Dickerer Rahmen
 
+def draw_board(screen, board):
+    """Zeichnet das Spielfeld mit Terrain."""
+    for y in range(board.size):
+        for x in range(board.size):
+            # Berechne Position auf dem Bildschirm
+            screen_x = x * SQUARE_SIZE
+            screen_y = y * SQUARE_SIZE
+            
+            # Zeichne Terrain-Hintergrund
+            terrain = board.get_terrain_at(x, y)
+            terrain_color = terrain.color
+            
+            # Zeichne Terrain-Hintergrund
+            pygame.draw.rect(screen, terrain_color, 
+                           (screen_x, screen_y, SQUARE_SIZE, SQUARE_SIZE))
+            
+            # Zeichne Terrain-Symbol
+            if terrain.symbol:
+                font = pygame.font.Font(None, 36)
+                text = font.render(terrain.symbol, True, (255, 255, 255))
+                text_rect = text.get_rect(center=(screen_x + SQUARE_SIZE // 2, 
+                                                screen_y + SQUARE_SIZE // 2))
+                screen.blit(text, text_rect)
+            
+            # Zeichne Gitterlinien
+            pygame.draw.rect(screen, GRID_COLOR, 
+                           (screen_x, screen_y, SQUARE_SIZE, SQUARE_SIZE), 1)
+
 def draw_units(screen, board, unit_images, game):
     """Zeichnet die Einheiten auf dem Brett."""
     for y in range(board.size):
@@ -157,16 +185,10 @@ def main():
             menu.draw_main_menu(screen)
             action = menu.handle_main_menu_events(events)
             
-            if action == 'singleplayer':
-                game = Game()
-                unit_images = load_unit_images()
-                game_state = GameState.PLAYING
-                selected_pos = None
-                game_over = False
-                special_mode = False
-                attack_mode = False
+            if action == 'singleplayer_menu':
+                game_state = GameState.SINGLEPLAYER_MENU
             elif action == 'multiplayer':
-                game = Game()
+                game = Game(game_mode="multiplayer")
                 unit_images = load_unit_images()
                 game_state = GameState.PLAYING
                 selected_pos = None
@@ -176,7 +198,34 @@ def main():
             elif action == 'quit':
                 running = False
                 
+        elif game_state == GameState.SINGLEPLAYER_MENU:
+            menu.draw_singleplayer_menu(screen)
+            action = menu.handle_singleplayer_menu_events(events)
+            
+            if action == 'main_menu':
+                game_state = GameState.MAIN_MENU
+            elif action and action.startswith('singleplayer_'):
+                difficulty = action.split('_')[1]
+                game = Game(game_mode="singleplayer", ai_difficulty=difficulty)
+                unit_images = load_unit_images()
+                game_state = GameState.PLAYING
+                selected_pos = None
+                game_over = False
+                special_mode = False
+                attack_mode = False
+                
         elif game_state == GameState.PLAYING:
+            # KI-Zug für Singleplayer
+            if game and game.game_mode == "singleplayer" and game.current_turn == 1:
+                # KI ist am Zug
+                if game.ai:
+                    print(f"KI (Schwierigkeit: {game.ai.difficulty}) ist am Zug...")
+                    # Kleine Verzögerung für bessere Spielbarkeit
+                    pygame.time.wait(1000)  # 1 Sekunde warten
+                    game.ai.make_turn()
+                    game.end_turn()
+                    continue
+            
             # Spiellogik
             # Erlaube Mausklicks auch während der Pfeilregen-Animation
             allow_clicks = (game and not game_over and 
@@ -188,14 +237,21 @@ def main():
                     if event.type == pygame.MOUSEBUTTONDOWN:
                         mouse_pos = pygame.mouse.get_pos()
                         
-                        # Prüfe UI-Clicks
+                        # Prüfe UI-Clicks (nur für aktuellen Spieler)
+                        current_player = game.players[game.current_turn]
                         ui_action = game_ui.handle_click(mouse_pos)
                         if ui_action == "attack" and selected_pos and not special_mode:
-                            attack_mode = True  # Angriffsmodus
-                            special_mode = False
+                            # Prüfe, ob die ausgewählte Einheit dem aktuellen Spieler gehört
+                            selected_unit = game.board.get_unit_at(selected_pos[0], selected_pos[1])
+                            if selected_unit and selected_unit.player == current_player:
+                                attack_mode = True  # Angriffsmodus
+                                special_mode = False
                         elif ui_action == "special" and selected_pos and not attack_mode:
-                            special_mode = True  # Spezialfähigkeiten-Modus
-                            attack_mode = False
+                            # Prüfe, ob die ausgewählte Einheit dem aktuellen Spieler gehört
+                            selected_unit = game.board.get_unit_at(selected_pos[0], selected_pos[1])
+                            if selected_unit and selected_unit.player == current_player:
+                                special_mode = True  # Spezialfähigkeiten-Modus
+                                attack_mode = False
                         
                         # Prüfe Spielfeld-Clicks (nur wenn Maus über dem Brett ist)
                         if mouse_pos[1] < BOARD_HEIGHT:
@@ -205,7 +261,8 @@ def main():
                             if selected_pos:
                                 selected_unit = game.board.get_unit_at(selected_pos[0], selected_pos[1])
                                 
-                                if not selected_unit:
+                                # Prüfe, ob die ausgewählte Einheit dem aktuellen Spieler gehört
+                                if not selected_unit or selected_unit.player != current_player:
                                     selected_pos = None
                                     special_mode = False
                                     attack_mode = False
@@ -267,7 +324,7 @@ def main():
             # Rendering
             if game:
                 screen.fill((0, 0, 0))
-                draw_grid(screen)
+                draw_board(screen, game.board)
                 draw_units(screen, game.board, unit_images, game)
                 draw_selection(screen, selected_pos)
                 

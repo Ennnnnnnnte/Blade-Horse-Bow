@@ -29,7 +29,13 @@ class Unit(ABC):
     def use_special_ability(self, **kwargs):
         pass
     
-    def take_damage(self, damage):
+    def take_damage(self, damage, board=None):
+        # Berücksichtige Terrain-Verteidigungsbonus
+        if self.position is not None and board is not None:
+            terrain = board.get_terrain_at(self.position[0], self.position[1])
+            terrain_defense = terrain.get_defense_bonus()
+            damage = int(damage * terrain_defense)
+            
         self.health -= damage
         if self.health <= 0:
             self.health = 0
@@ -74,7 +80,7 @@ class Swordsman(Unit):
         if distance <= 2:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
-            target_unit.take_damage(damage)
+            target_unit.take_damage(damage, board)
             print(f"Swordsman attacked {target_unit.__class__.__name__} for {damage} damage.")
             return True
         print("Target is not in range.")
@@ -90,14 +96,14 @@ class Swordsman(Unit):
             return True
         return False
         
-    def take_damage(self, damage):
+    def take_damage(self, damage, board=None):
         if self.shield_active and not self.shield_used:
             original_damage = damage
             damage = damage // 2  # Halbiere den Schaden
             self.shield_used = True
             self.shield_active = False  # Schild ist nach einem Angriff verbraucht
             print(f"Shield absorbed damage! Reduced from {original_damage} to {damage}")
-        super().take_damage(damage)
+        super().take_damage(damage, board)
         
     def end_turn(self):
         """Wird am Ende des Spielerzugs aufgerufen"""
@@ -124,7 +130,7 @@ class Archer(Unit):
         if distance <= 6:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
-            target_unit.take_damage(damage)
+            target_unit.take_damage(damage, board)
             print(f"Archer attacked {target_unit.__class__.__name__} for {damage} damage.")
             return True
         print("Target is not in range.")
@@ -164,7 +170,7 @@ class Archer(Unit):
                         # Reduzierter Schaden für AOE
                         damage_modifier = self.get_damage_modifier(target_unit)
                         damage = int(self.arrow_storm_damage * damage_modifier)
-                        target_unit.take_damage(damage)
+                        target_unit.take_damage(damage, board)
                         targets_hit.append((check_x, check_y, target_unit, damage))
                         print(f"Arrow Storm hit {target_unit.__class__.__name__} at ({check_x}, {check_y}) for {damage} damage!")
         
@@ -192,7 +198,7 @@ class Rider(Unit):
         if distance <= 1:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = self.attack_power * damage_modifier
-            target_unit.take_damage(damage)
+            target_unit.take_damage(damage, board)
             print(f"Rider attacked {target_unit.__class__.__name__} for {damage} damage.")
             return True
         print("Target is not in range.")
@@ -259,7 +265,7 @@ class Rider(Unit):
         if target_unit and target_unit.player != self.player:
             damage_modifier = self.get_damage_modifier(target_unit)
             damage = int(self.charge_damage * damage_modifier)
-            target_unit.take_damage(damage)
+            target_unit.take_damage(damage, board)
             print(f"Charge hit {target_unit.__class__.__name__} for {damage} damage!")
         else:
             print("Charge completed - no enemy at target position.")
